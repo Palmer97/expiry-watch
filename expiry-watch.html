@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expiry watch</title>
+<style>
+  :root{
+    --bg:#EEF3F1; --ink:#14302B; --muted:#5C7570; --line:#D3DFDB; --card:#fff;
+    --expired:#B3261E; --urgent:#D9480F; --watch:#9A6700; --ok:#2F7D5B;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:560px;margin:0 auto;padding:20px 16px 110px}
+  h1{font-size:28px;letter-spacing:-.02em;margin:0}
+  #today{color:var(--muted);margin:2px 0 14px}
+  button{font:inherit;cursor:pointer}
+  :focus-visible{outline:3px solid #2B7FFF;outline-offset:2px}
+
+  .banner{padding:12px 14px;border-radius:10px;color:#fff;font-weight:500;margin-bottom:14px;background:var(--ok)}
+  .banner.bad{background:var(--expired)} .banner.warn{background:var(--urgent)} .banner.watch{background:var(--watch)}
+
+  .bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--line);margin-bottom:12px}
+  .bar i{display:block;height:100%}
+
+  .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:6px}
+  .chip{flex:none;border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;font-size:14px;color:var(--ink)}
+  .chip b{margin-left:4px}
+  .chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:#fff}
+
+  input,select{width:100%;padding:11px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff;color:var(--ink)}
+  #search{margin:4px 0 6px}
+
+  ul{list-style:none;margin:12px 0;padding:0;display:grid;gap:10px}
+  .item{background:var(--card);border-radius:12px;border-left:6px solid var(--c);overflow:hidden}
+  .s-expired{--c:var(--expired)} .s-urgent{--c:var(--urgent)} .s-watch{--c:var(--watch)} .s-ok{--c:var(--ok)}
+  .row{all:unset;display:flex;width:100%;gap:12px;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer}
+  .row:focus-visible{outline:3px solid #2B7FFF;outline-offset:-3px}
+  .name{font-weight:650}
+  .sub{color:var(--muted);font-weight:400}
+  .meta{font-size:13px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:2px 12px}
+  .days{text-align:right;flex:none}
+  .days b{display:block;font-size:28px;line-height:1;color:var(--c);font-variant-numeric:tabular-nums}
+  .days span{font-size:12px;color:var(--muted)}
+  .exp{font-size:12px;color:var(--muted)}
+  .actions{display:flex;gap:8px;padding:0 14px 12px}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:9px 14px;color:var(--ink)}
+  .btn.primary{background:var(--ink);border-color:var(--ink);color:#fff}
+  .btn.danger{color:var(--expired);border-color:#E7B9B5}
+
+  .empty{background:#fff;border-radius:12px;padding:18px;color:var(--muted)}
+  .empty button{margin-top:10px}
+
+  .fab{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;width:min(528px,calc(100% - 32px));padding:15px;border:0;border-radius:12px;background:var(--ink);color:#fff;font-weight:600}
+
+  details{background:#fff;border-radius:12px;padding:12px 14px;margin-top:16px}
+  summary{cursor:pointer;font-weight:600}
+  .set{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}
+  .tools{display:flex;gap:8px;flex-wrap:wrap}
+  .note{font-size:13px;color:var(--muted);margin:10px 0 0}
+
+  dialog{border:0;border-radius:16px 16px 0 0;padding:18px 16px 20px;width:100%;max-width:560px;margin:auto auto 0}
+  dialog::backdrop{background:rgba(20,48,43,.45)}
+  dialog h2{margin:0 0 4px;font-size:20px}
+  label{display:block;font-size:14px;color:var(--muted);margin:10px 0 4px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .formbtns{display:flex;gap:8px;margin-top:16px}
+  .formbtns .primary{flex:1}
+
+  #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:84px;background:var(--ink);color:#fff;padding:10px 14px;border-radius:10px;display:none;gap:12px;align-items:center;max-width:calc(100% - 32px);z-index:10}
+  #toast button{background:none;border:0;color:#9FE0C3;font-weight:600;padding:0}
+</style>
+</head>
+<body>
+<main>
+  <h1>Expiry watch</h1>
+  <p id="today"></p>
+  <section id="banner" class="banner" aria-live="polite"></section>
+  <div id="bar" class="bar" role="img"></div>
+  <div id="chips" class="chips"></div>
+  <input id="search" type="search" placeholder="Search drug, batch or location" aria-label="Search stock">
+  <ul id="list"></ul>
+
+  <details>
+    <summary>Settings and export</summary>
+    <div class="set">
+      <div><label for="urgentDays">Urgent within (days)</label><input id="urgentDays" type="number" min="1" max="365" inputmode="numeric"></div>
+      <div><label for="watchDays">Watch within (days)</label><input id="watchDays" type="number" min="2" max="730" inputmode="numeric"></div>
+    </div>
+    <div class="tools">
+      <button class="btn" id="copyBtn">Copy near-expiry list</button>
+      <button class="btn" id="icsBtn">Calendar reminders (.ics)</button>
+    </div>
+    <p class="note">The page shows its alert banner every time you open it. For reminders that reach your phone when the app is closed, import the .ics file into your phone calendar.</p>
+  </details>
+</main>
+
+<button class="fab" id="addBtn">Add stock</button>
+
+<dialog id="dlg">
+  <form id="form">
+    <h2 id="dlgTitle">Add stock</h2>
+    <label for="fName">Drug name</label>
+    <input id="fName" required autocomplete="off" placeholder="e.g. Amoxicillin">
+    <label for="fStrength">Strength and form</label>
+    <input id="fStrength" autocomplete="off" placeholder="e.g. 500 mg capsules">
+    <div class="two">
+      <div><label for="fBatch">Batch number</label><input id="fBatch" autocomplete="off"></div>
+      <div><label for="fQty">Quantity</label><input id="fQty" type="number" min="0" inputmode="numeric"></div>
+    </div>
+    <div class="two">
+      <div><label for="fExpiry">Expiry (MM/YYYY)</label><input id="fExpiry" type="month" required placeholder="MM/YYYY"></div>
+      <div><label for="fLoc">Location</label><input id="fLoc" list="locs" autocomplete="off"></div>
+    </div>
+    <datalist id="locs"><option value="Dispensary shelf"><option value="Store room"><option value="Fridge"><option value="Emergency tray"></datalist>
+    <div class="formbtns">
+      <button type="button" class="btn" id="cancelBtn">Cancel</button>
+      <button type="submit" class="btn primary" id="saveBtn">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast"><span id="toastMsg"></span><button id="undoBtn">Undo</button></div>
+
+<script>
+(function(){
+  var KEY = 'expiry-watch-v1';
+  var state = { items: [], urgent: 30, watch: 90 };
+  var ui = { filter: 'all', q: '', openId: null, editId: null, lastRemoved: null, toastTimer: null };
+  var $ = function(id){ return document.getElementById(id); };
+
+  /* ---------- storage: artifact storage first, then browser storage, then memory only ---------- */
+  async function load(){
+    try { if (window.storage) { var r = await window.storage.get(KEY, false); if (r && r.value) return JSON.parse(r.value); } } catch(e){}
+    try { var v = window.localStorage.getItem(KEY); if (v) return JSON.parse(v); } catch(e){}
+    return null;
+  }
+  async function save(){
+    var s = JSON.stringify({ items: state.items, urgent: state.urgent, watch: state.watch });
+    try { if (window.storage) { await window.storage.set(KEY, s, false); return; } } catch(e){}
+    try { window.localStorage.setItem(KEY, s); } catch(e){}
+  }
+
+  /* ---------- dates ---------- */
+  function startOfToday(){ var d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  function toISO(d){ var m = d.getMonth()+1, day = d.getDate(); return d.getFullYear()+'-'+(m<10?'0':'')+m+'-'+(day<10?'0':'')+day; }
+  function fromISO(s){ var p = s.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }
+  // Packs show MM/YYYY: the drug is good until the last day of that month.
+  function parseMonthYear(str){
+    var y, m, a = /^(\d{4})-(\d{1,2})$/.exec(str.trim()), b = /^(\d{1,2})\s*[\/-]\s*(\d{4})$/.exec(str.trim());
+    if (a) { y = +a[1]; m = +a[2]; } else if (b) { m = +b[1]; y = +b[2]; } else return null;
+    if (m < 1 || m > 12) return null;
+    return new Date(y, m, 0);
+  }
+  function daysLeft(item){ return Math.round((fromISO(item.expiry) - startOfToday()) / 86400000); }
+  function status(days){ return days < 0 ? 'expired' : days <= state.urgent ? 'urgent' : days <= state.watch ? 'watch' : 'ok'; }
+  function fmtMY(iso){ var d = fromISO(iso); return (d.getMonth()+1 < 10 ? '0' : '') + (d.getMonth()+1) + '/' + d.getFullYear(); }
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function plural(n, w){ return n + ' ' + w + (n === 1 ? '' : 's'); }
+
+  /* ---------- render ---------- */
+  function counts(){
+    var c = { expired:0, urgent:0, watch:0, ok:0 };
+    state.items.forEach(function(it){ c[status(daysLeft(it))]++; });
+    return c;
+  }
+
+  function render(){
+    var c = counts(), total = state.items.length;
+    $('today').textContent = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+    // banner
+    var b = $('banner'), msg, cls;
+    if (!total) { msg = 'No stock added yet.'; cls = 'banner'; }
+    else if (c.expired) { msg = plural(c.expired, 'item') + ' already expired' + (c.urgent ? ', ' + c.urgent + ' more within ' + state.urgent + ' days' : '') + '. Pull these first.'; cls = 'banner bad'; }
+    else if (c.urgent) { msg = plural(c.urgent, 'item') + ' expire within ' + state.urgent + ' days.'; cls = 'banner warn'; }
+    else if (c.watch) { msg = plural(c.watch, 'item') + ' expire within ' + state.watch + ' days.'; cls = 'banner watch'; }
+    else { msg = 'Nothing close to expiry.'; cls = 'banner'; }
+    b.className = cls; b.textContent = msg;
+
+    // proportion bar
+    var colors = { expired:'var(--expired)', urgent:'var(--urgent)', watch:'var(--watch)', ok:'var(--ok)' };
+    $('bar').innerHTML = total ? ['expired','urgent','watch','ok'].map(function(k){
+      return c[k] ? '<i style="width:'+(c[k]/total*100)+'%;background:'+colors[k]+'"></i>' : '';
+    }).join('') : '';
+    $('bar').setAttribute('aria-label', total ? c.expired+' expired, '+c.urgent+' urgent, '+c.watch+' watch, '+c.ok+' fine' : 'No stock');
+
+    // chips
+    var defs = [
+      ['all', 'All', total],
+      ['expired', 'Expired', c.expired],
+      ['urgent', 'Within ' + state.urgent + ' days', c.urgent],
+      ['watch', (state.urgent+1) + '–' + state.watch + ' days', c.watch],
+      ['ok', 'Beyond ' + state.watch + ' days', c.ok]
+    ];
+    $('chips').innerHTML = defs.map(function(d){
+      return '<button class="chip" data-f="'+d[0]+'" aria-pressed="'+(ui.filter===d[0])+'">'+esc(d[1])+'<b>'+d[2]+'</b></button>';
+    }).join('');
+
+    // list
+    var q = ui.q.trim().toLowerCase();
+    var rows = state.items.filter(function(it){
+      var s = status(daysLeft(it));
+      if (ui.filter !== 'all' && ui.filter !== s) return false;
+      if (!q) return true;
+      return (it.name+' '+it.strength+' '+it.batch+' '+it.location).toLowerCase().indexOf(q) > -1;
+    }).sort(function(a,b){ return a.expiry < b.expiry ? -1 : a.expiry > b.expiry ? 1 : 0; });
+
+    var list = $('list');
+    if (!rows.length) {
+      list.innerHTML = total
+        ? '<li class="empty">Nothing matches this filter.</li>'
+        : '<li class="empty">Add the first drug you want to track. Items sort by expiry date, soonest first.<br><button class="btn" id="sampleBtn">Load 4 sample items to try it</button></li>';
+    } else {
+      list.innerHTML = rows.map(function(it){
+        var d = daysLeft(it), s = status(d);
+        var big = Math.abs(d), small = d < 0 ? (big === 1 ? 'day overdue' : 'days overdue') : d === 0 ? 'expires today' : (d === 1 ? 'day left' : 'days left');
+        var open = ui.openId === it.id;
+        return '<li class="item s-'+s+'">'+
+          '<button class="row" data-id="'+it.id+'" aria-expanded="'+open+'">'+
+            '<div><div class="name">'+esc(it.name)+(it.strength ? ' <span class="sub">'+esc(it.strength)+'</span>' : '')+'</div>'+
+            '<div class="meta">'+(it.batch ? '<span>Batch '+esc(it.batch)+'</span>' : '')+(it.qty !== '' && it.qty != null ? '<span>Qty '+esc(it.qty)+'</span>' : '')+(it.location ? '<span>'+esc(it.location)+'</span>' : '')+'</div></div>'+
+            '<div class="days">'+(d === 0 ? '<b>0</b>' : '<b>'+big+'</b>')+'<span>'+small+'</span><div class="exp">Exp '+fmtMY(it.expiry)+'</div></div>'+
+          '</button>'+
+          (open ? '<div class="actions"><button class="btn" data-edit="'+it.id+'">Edit</button><button class="btn danger" data-remove="'+it.id+'">Pulled from shelf</button></div>' : '')+
+        '</li>';
+      }).join('');
+    }
+
+    $('urgentDays').value = state.urgent;
+    $('watchDays').value = state.watch;
+  }
+
+  /* ---------- toast with undo ---------- */
+  function toast(msg, withUndo){
+    $('toastMsg').textContent = msg;
+    $('undoBtn').style.display = withUndo ? '' : 'none';
+    $('toast').style.display = 'flex';
+    clearTimeout(ui.toastTimer);
+    ui.toastTimer = setTimeout(function(){ $('toast').style.display = 'none'; ui.lastRemoved = null; }, 6000);
+  }
+
+  /* ---------- add / edit ---------- */
+  function openForm(id){
+    ui.editId = id || null;
+    var it = id ? state.items.filter(function(x){ return x.id === id; })[0] : null;
+    $('dlgTitle').textContent = it ? 'Edit stock' : 'Add stock';
+    $('fName').value = it ? it.name : '';
+    $('fStrength').value = it ? it.strength : '';
+    $('fBatch').value = it ? it.batch : '';
+    $('fQty').value = it && it.qty != null ? it.qty : '';
+    $('fExpiry').value = it ? it.expiry.slice(0,7) : '';
+    $('fLoc').value = it ? it.location : '';
+    $('dlg').showModal();
+    $('fName').focus();
+  }
+
+  $('form').addEventListener('submit', function(e){
+    e.preventDefault();
+    var exp = parseMonthYear($('fExpiry').value);
+    if (!exp) { toast('Enter the expiry as MM/YYYY.', false); return; }
+    var rec = {
+      id: ui.editId || (Date.now().toString(36) + Math.random().toString(36).slice(2,6)),
+      name: $('fName').value.trim(), strength: $('fStrength').value.trim(), batch: $('fBatch').value.trim(),
+      qty: $('fQty').value, expiry: toISO(exp), location: $('fLoc').value.trim()
+    };
+    if (ui.editId) state.items = state.items.map(function(x){ return x.id === ui.editId ? rec : x; });
+    else state.items.push(rec);
+    ui.openId = null;
+    $('dlg').close(); save(); render();
+    toast(ui.editId ? 'Changes saved.' : 'Stock added.', false);
+  });
+
+  /* ---------- events ---------- */
+  $('addBtn').addEventListener('click', function(){ openForm(); });
+  $('cancelBtn').addEventListener('click', function(){ $('dlg').close(); });
+  $('search').addEventListener('input', function(e){ ui.q = e.target.value; render(); });
+
+  $('chips').addEventListener('click', function(e){
+    var b = e.target.closest('[data-f]'); if (!b) return;
+    ui.filter = b.getAttribute('data-f'); render();
+  });
+
+  $('list').addEventListener('click', function(e){
+    var ed = e.target.closest('[data-edit]'), rm = e.target.closest('[data-remove]'), row = e.target.closest('.row'), sm = e.target.closest('#sampleBtn');
+    if (sm) { loadSamples(); return; }
+    if (ed) { openForm(ed.getAttribute('data-edit')); return; }
+    if (rm) {
+      var id = rm.getAttribute('data-remove');
+      ui.lastRemoved = state.items.filter(function(x){ return x.id === id; })[0];
+      state.items = state.items.filter(function(x){ return x.id !== id; });
+      ui.openId = null; save(); render();
+      toast('Removed from the list.', true); return;
+    }
+    if (row) { var id2 = row.getAttribute('data-id'); ui.openId = ui.openId === id2 ? null : id2; render(); }
+  });
+
+  $('undoBtn').addEventListener('click', function(){
+    if (ui.lastRemoved) { state.items.push(ui.lastRemoved); ui.lastRemoved = null; save(); render(); }
+    $('toast').style.display = 'none';
+  });
+
+  function readDays(){
+    var u = parseInt($('urgentDays').value, 10), w = parseInt($('watchDays').value, 10);
+    if (!(u >= 1)) u = 30;
+    if (!(w > u)) w = u + 60;
+    state.urgent = u; state.watch = w; save(); render();
+  }
+  $('urgentDays').addEventListener('change', readDays);
+  $('watchDays').addEventListener('change', readDays);
+
+  /* ---------- samples ---------- */
+  function loadSamples(){
+    var base = startOfToday();
+    function at(offset){ var d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offset); return toISO(new Date(d.getFullYear(), d.getMonth()+1, 0)); }
+    var s = [
+      ['Diazepam injection','10 mg/2 mL ampoules','DZ2291',40,'Emergency tray',-20],
+      ['Paracetamol','500 mg tablets','PCM7710',300,'Dispensary shelf',22],
+      ['Oxytocin','10 IU/mL ampoules','OX1184',25,'Fridge',70],
+      ['Amoxicillin','500 mg capsules','AMX5503',120,'Store room',400]
+    ];
+    s.forEach(function(r, i){ state.items.push({ id:'s'+i+Date.now().toString(36), name:r[0], strength:r[1], batch:r[2], qty:String(r[3]), location:r[4], expiry:at(r[5]) }); });
+    save(); render();
+  }
+
+  /* ---------- share list and calendar export ---------- */
+  function nearList(){
+    return state.items.filter(function(it){ return status(daysLeft(it)) !== 'ok'; })
+      .sort(function(a,b){ return a.expiry < b.expiry ? -1 : 1; });
+  }
+  function copyText(t){
+    function fallback(){
+      var ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch(e){}
+      document.body.removeChild(ta); return ok;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(t).then(function(){ return true; }, function(){ return fallback(); });
+    }
+    return Promise.resolve(fallback());
+  }
+  $('copyBtn').addEventListener('click', function(){
+    var l = nearList();
+    if (!l.length) { toast('Nothing near expiry to copy.', false); return; }
+    var t = 'Near-expiry stock, ' + new Date().toLocaleDateString('en-GB') + '\n' + l.map(function(it){
+      var d = daysLeft(it);
+      return '- ' + it.name + (it.strength ? ' ' + it.strength : '') + (it.batch ? ', batch ' + it.batch : '') + (it.qty !== '' ? ', qty ' + it.qty : '') + ', exp ' + fmtMY(it.expiry) + ' (' + (d < 0 ? 'EXPIRED' : d + ' days') + ')';
+    }).join('\n');
+    copyText(t).then(function(ok){ toast(ok ? 'List copied. Paste it into WhatsApp or email.' : 'Could not copy on this device.', false); });
+  });
+
+  $('icsBtn').addEventListener('click', function(){
+    if (!state.items.length) { toast('Add some stock first.', false); return; }
+    var today = startOfToday(), lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Expiry watch//EN','CALSCALE:GREGORIAN'], n = 0;
+    function ymd(d){ return toISO(d).replace(/-/g,''); }
+    state.items.forEach(function(it){
+      var exp = fromISO(it.expiry);
+      [[state.watch,'expires in about ' + state.watch + ' days'],[state.urgent,'expires within ' + state.urgent + ' days']].forEach(function(p){
+        var when = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate() - p[0]);
+        if (when < today) return;
+        var next = new Date(when.getFullYear(), when.getMonth(), when.getDate() + 1);
+        lines.push('BEGIN:VEVENT','UID:'+it.id+'-'+p[0]+'@expiry-watch','DTSTAMP:'+ymd(today)+'T000000Z',
+          'DTSTART;VALUE=DATE:'+ymd(when),'DTEND;VALUE=DATE:'+ymd(next),
+          'SUMMARY:Expiry: '+(it.name+' '+it.strength).trim()+' '+p[1],
+          'DESCRIPTION:Batch '+(it.batch||'n/a')+', qty '+(it.qty||'n/a')+', expires '+fmtMY(it.expiry)+'.',
+          'END:VEVENT'); n++;
+      });
+    });
+    lines.push('END:VCALENDAR');
+    if (!n) { toast('All reminder dates have already passed.', false); return; }
+    try {
+      var blob = new Blob([lines.join('\r\n')], { type:'text/calendar' });
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'expiry-reminders.ics';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      toast(n + ' calendar reminders created.', false);
+    } catch(e){ toast('Download is blocked here. Open the file in your phone browser.', false); }
+  });
+
+  /* ---------- start ---------- */
+  load().then(function(saved){
+    if (saved && saved.items) { state.items = saved.items; state.urgent = saved.urgent || 30; state.watch = saved.watch || 90; }
+    render();
+  });
+})();
+</script>
+</body>
+</html>
